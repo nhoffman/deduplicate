@@ -6,6 +6,8 @@ from optparse import OptionParser
 import pprint
 import time
 
+import deduplicate
+
 log = logging
 
 def readfasta(infile, degap=False):
@@ -127,11 +129,9 @@ represent each set of substrings or identical sequences.
         parser.print_usage()
         sys.exit(1)
 
-    seqs = Seq.io_fasta.read(open(infile).read(),
-                             degap=True, style='upper')
+    seqs = readfasta(infile, degap=True)
 
-
-    strings = tuple(seq.seq for seq in seqs)
+    strings = tuple(seq[1] for seq in seqs)
     nstrings = len(strings)
     log.warning('Input contains %s items' % nstrings)
 
@@ -146,26 +146,26 @@ represent each set of substrings or identical sequences.
 
     log.warning('chunksize = %s' % chunksize)
 
-    d = split_and_merge(strings, comp, chunksize)
+    d = deduplicate.dedup(strings, comp, chunksize)
 
     log.warning('Input data can be represented by %s superstrings (%.2f%% of the input number)' % (len(d), 100*(len(d)/float(nstrings))))
     log.warning('grand total is %.2f secs' % (time.time()-start))
 
-    if options.outfile:
-        fout = open(options.outfile,'w')
-        for parent, children in sorted(d.items()):
-            s = seqs[parent]
-            s.hea = ' '.join(seqs[c].name for c in children)
-            if options.name_style == 'count':
-                s.name = '%s|%s' % (s.name, len(children))
-            fout.write(Seq.io_fasta.write(seqs[parent], hea=True))
+    # if options.outfile:
+    #     fout = open(options.outfile,'w')
+    #     for parent, children in sorted(d.items()):
+    #         s = seqs[parent]
+    #         s.hea = ' '.join(seqs[c].name for c in children)
+    #         if options.name_style == 'count':
+    #             s.name = '%s|%s' % (s.name, len(children))
+    #         fout.write(Seq.io_fasta.write(seqs[parent], hea=True))
             
-        fout.close()
+    #     fout.close()
 
-    if options.r_file:
-        fout = open(options.r_file,'w')
-        rlist(d, seqs, fout)
-        fout.close()
+    # if options.r_file:
+    #     fout = open(options.r_file,'w')
+    #     rlist(d, seqs, fout)
+    #     fout.close()
 
 if __name__ == '__main__':
     main()

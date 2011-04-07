@@ -1,36 +1,25 @@
 __version__ = "0.1.1"
 __version_info__ = tuple([ int(num) for num in __version__.split('.')])
 
-# _min_python_version = '2.6.0'
+_min_python_version = '2.7.0'
 
-# def _check_python_version():
-#     vsplit = lambda x: tuple([int(n) for n in x.split('.')])
-#     sys_version = sys.version.split()[0]
-#     version = vsplit(sys_version)
-#     if version < vsplit(_min_python_version):
-#         raise SystemError('this package requires Python version %s or greater (current version is %s)' \
-#                               % (_min_python_version, sys_version))
+def _check_python_version():
+    vsplit = lambda x: tuple([int(n) for n in x.split('.')])
+    sys_version = sys.version.split()[0]
+    version = vsplit(sys_version)
+    if version < vsplit(_min_python_version):
+        raise SystemError('this package requires Python version %s or greater (current version is %s)' \
+                              % (_min_python_version, sys_version))
 
-# _check_python_version()
+import time
+import logging
+import operator
+import sys
+from itertools import izip, chain, repeat, islice, takewhile, izip_longest
 
-from itertools import izip, chain, repeat, islice, takewhile
+log = logging
 
-try:
-    from itertools import izip_longest
-except ImportError:
-    def izip_longest(*args, **kwds):
-        # see http://docs.python.org/library/itertools.html#recipes
-        # izip_longest('ABCD', 'xy', fillvalue='-') --> Ax By C- D-
-        fillvalue = kwds.get('fillvalue')
-        def sentinel(counter = ([fillvalue]*(len(args)-1)).pop):
-            yield counter()         # yields the fillvalue, or raises IndexError
-        fillers = repeat(fillvalue)
-        iters = [chain(it, sentinel(), fillers) for it in args]
-        try:
-            for tup in izip(*iters):
-                yield tup
-        except IndexError:
-            pass
+_check_python_version()
 
 def grouper(n, iterable, pad=True):
     """
@@ -52,7 +41,7 @@ def flatten(d):
 
 #### the real work is done in coalesce and merge
 
-def coalesce(strings, comp='contains', log=log):
+def coalesce(strings, idx=None, comp='contains', log=log):
 
     """
     Groups a collection of strings by identifying the longest string
@@ -76,11 +65,14 @@ def coalesce(strings, comp='contains', log=log):
 
     start = time.time()
 
-    idx = range(len(strings))
-
-    if __debug__:
-        idx_orig = idx[:]
-
+    try:
+        len(strings)
+    except TypeError:
+        strings = list(strings)
+    
+    if not idx:
+        idx = range(len(strings))
+            
     # sort idx by length, descending
     idx.sort(key=lambda i: len(strings[i]),reverse=True)
     log.debug('sort completed at %s secs' % (time.time()-start))
@@ -96,15 +88,6 @@ def coalesce(strings, comp='contains', log=log):
     while len(idx) > 0:
         parent_i = idx.pop(0)
         parent_str = strings[parent_i]
-        if __debug__: # suppress using python -O
-            cycle += 1
-            log.debug('cycle %3s i=%-5s length = %-4s %5s remaining' % \
-                (cycle,
-                 parent_i,
-                 len(strings[parent_i]),
-                 len(idx)
-                 ))
-
         children = set(i for i in idx if compfun(parent_str,strings[i]))
         d[parent_i].extend(children)
         idx = [x for x in idx if x not in children]
@@ -113,17 +96,6 @@ def coalesce(strings, comp='contains', log=log):
         del d[i]
 
     log.info('Coalesce %s strings to %s in %.2f secs' % (nstrings, len(d), time.time()-start))
-
-    if __debug__:
-        dFlat = flatten(d)
-        log.debug('checking d of length %s with min,max=%s,%s' % \
-            (len(d), min(dFlat), max(dFlat)))
-
-        assert set(idx_orig) == set(dFlat)
-
-        for parent, children in d.items():
-            for child in children:
-                assert strings[child] in strings[parent]
 
     return d
 
@@ -170,7 +142,6 @@ def merge(strings, d1, d2=None, comp='contains'):
             for child in children:
                 assert strings[child] in strings[parent]
 
-
     return d
 
 def dedup(strings, comp='contains', chunksize=None):
@@ -183,17 +154,20 @@ def dedup(strings, comp='contains', chunksize=None):
     =====
 
      * strings - a tuple of N strings
-     * comp - defines string comparison method: 'contains' -> "s1 in s2" or
-       'eq' -> "s1 == s2"
+     * comp - defines string comparison method:
+
+       * 'contains' -> "s1 in s2" or
+       * 'eq' -> "s1 == s2"
+
      * chunksize - an integer defining size of partitions into which
-       strings are divided; each partition is coalesced individually, and the
-       results of each are merged.
+       strings are divided; each partition is coalesced individually,
+       and the results of each are merged.
 
     Output
     ======
 
      * A dict mapping superrstrings to substrings, in which keys and
-     values are indices in strings.
+     values are indices into strings.
 
     """
 
@@ -202,10 +176,9 @@ def dedup(strings, comp='contains', chunksize=None):
     if not chunksize:
         chunksize = nstrings
 
-    ### the important stuff happens from here...
     chunks = grouper(n=chunksize, iterable=xrange(nstrings), pad=False)
     # TODO: parallelize me
-    coalesced = [coalesce(strings, c, comp=comp) for c in chunks]
+    coalesced = [coalesce(strings, idx=list(c), comp=comp) for c in chunks]
 
     cycle = 1
     while len(coalesced) > 1:
@@ -215,7 +188,6 @@ def dedup(strings, comp='contains', chunksize=None):
         cycle += 1
 
     d = coalesced[0]
-    ### ... to here
 
     assert set(flatten(d)) == set(range(nstrings))
 
